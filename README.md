@@ -1,122 +1,73 @@
-# 📌 Emissor de Nota Fiscal de Serviço Eletrônica (NFS-e) usando a API PlugNotas
+# Integração com a API PlugNotas
 
-## 📋 Descrição
-Este projeto em Python permite a emissão automática de Notas Fiscais de Serviço Eletrônica (NFS-e) utilizando a **API da PlugNotas**. Ele lê os dados de um arquivo CSV, separa a nota em **70% serviço e 30% produto**, e envia os dados para a API da PlugNotas para emissão.
+Este projeto tem como objetivo integrar a API da PlugNotas para emissão de **NFe (Nota Fiscal Eletrônica)** e **NFS-e (Nota Fiscal de Serviço Eletrônica)**, dividindo o valor total da venda em **70% para serviço** e **30% para produto**.
 
----
+## 📌 Funcionalidades
+- Processa um arquivo CSV contendo informações de clientes e valores de venda.
+- Divide automaticamente os valores entre **produto** e **serviço**.
+- Envia requisições para emissão de **NFe** e **NFS-e** na API da PlugNotas.
+- Exibe o JSON gerado antes do envio para depuração.
+- Captura e exibe os erros retornados pela API.
 
-## 🚀 Funcionalidades
-- Leitura de notas fiscais a partir de um **arquivo CSV**.
-- Cálculo automático de **70% como serviço e 30% como produto**.
-- Montagem do JSON conforme as exigências da API PlugNotas.
-- Envio da requisição para a API e exibição da resposta.
+## 🛠️ Tecnologias Utilizadas
+- **Python 3.x**
+- **Bibliotecas:**
+  - `requests` (para comunicação com a API)
+  - `csv` (para leitura do arquivo CSV)
+  - `json` (para manipulação de dados JSON)
 
----
+## 📂 Estrutura do Projeto
+```
+📁 projeto
+│-- plug-notas.py  # Código principal para processamento e envio das notas
+│-- clientes_teste.csv  # Arquivo CSV com os dados dos clientes
+│-- README.md  # Documentação do projeto
+```
 
-## 📌 Como Usar
-
-### 1️⃣ **Configurar dependências**
-Instale as bibliotecas necessárias:
+## ⚙️ Configuração
+### 1️⃣ **Instalar dependências**
+Se ainda não tiver a biblioteca `requests`, instale com:
 ```sh
 pip install requests
 ```
 
-### 2️⃣ **Criar o arquivo CSV**
-Crie um arquivo `notas.csv` no seguinte formato:
-```csv
-cpf_cnpj,nome,descricao,codigo_servico,codigo_produto,valor_total
-12345678900,João Silva,Curso de Matemática,1001,5001,2000.00
-98765432100,Maria Souza,Curso de Português,1002,5002,1500.00
-```
-
-### 3️⃣ **Definir a chave da API**
-No arquivo Python, substitua **SUA_CHAVE_DA_API** pela chave real da API PlugNotas.
+### 2️⃣ **Definir o Token da API**
+O token de autenticação da PlugNotas deve ser configurado corretamente no código:
 ```python
-API_KEY = "SUA_CHAVE_DA_API"
+TOKEN = "SEU_TOKEN_AQUI"
 ```
+Caso precise de um novo token, acesse o **Painel da PlugNotas**.
 
-### 4️⃣ **Executar o código**
+### 3️⃣ **Executar o Script**
+Para rodar o script, utilize:
 ```sh
-python emissor_nfse.py
+python plug-notas.py
 ```
 
----
+## 📥 Formato do Arquivo CSV
+O arquivo `clientes_teste.csv` deve conter os seguintes campos:
+```csv
+Nome,CPF/CNPJ,Logradouro,Número,Bairro,Código Município,UF,CEP,Valor Total da Venda,NCM,CFOP,CST
+"Cliente Teste","12345678000123","Rua Exemplo","123","Centro","3550308","SP","01001000","1000.00","49019900","5101","06"
+```
 
-## 📜 Estrutura do Código
-### 🔹 **Leitura do CSV**
-A função `ler_csv()` carrega os dados do arquivo CSV.
+## 🚀 Como Funciona
+1. O script lê o CSV e separa o valor da venda em **70% serviço e 30% produto**.
+2. Gera os JSONs necessários para a API da PlugNotas.
+3. Envia requisições para emissão de NFe e NFS-e.
+4. Exibe os JSONs enviados e as respostas da API.
+
+## 🛑 Possíveis Erros e Soluções
+### ❌ **Erro: "Já existe uma NFe com os parâmetros informados"**
+🔹 **Causa:** O mesmo `idIntegracao` foi utilizado antes.
+🔹 **Solução:** Gerar um novo ID para cada nota:
 ```python
-def ler_csv(arquivo):
-    notas = []
-    with open(arquivo, mode="r", encoding="utf-8") as file:
-        leitor = csv.DictReader(file)
-        for linha in leitor:
-            notas.append(linha)
-    return notas
+import uuid
+novo_id_integracao = str(uuid.uuid4())
 ```
 
-### 🔹 **Montagem dos Dados para a API**
-Os valores da nota são divididos:
-```python
-valor_total = float(nota["valor_total"])
-valor_servico = round(valor_total * 0.70, 2)  # 70% do valor total
-valor_produto = round(valor_total * 0.30, 2)  # 30% do valor total
-```
+### ❌ **Erro: "Falha na validação do JSON de NFSe"**
+🔹 **Causa:** Algum campo obrigatório está ausente ou com valor inválido.
+🔹 **Solução:** Verificar se `valor`, `razaoSocial` e `endereco` estão corretos antes de enviar.
 
-A estrutura JSON da nota fiscal:
-```python
-dados_nfse = {
-    "tomador": {
-        "cpfCnpj": nota["cpf_cnpj"],
-        "razaoSocial": nota["nome"],
-        "endereco": {
-            "codigoMunicipio": "2704302",  # Maceió (AL)
-            "uf": "AL"
-        }
-    },
-    "servico": {
-        "discriminacao": nota["descricao"],
-        "codigo": nota["codigo_servico"],
-        "aliquotaIss": 5.0,
-        "valor": valor_servico
-    },
-    "produtos": [
-        {
-            "codigo": nota["codigo_produto"],
-            "descricao": "Material Didático",
-            "ncm": "49019900",
-            "quantidade": 1,
-            "valorUnitario": valor_produto
-        }
-    ],
-    "valor": valor_total
-}
-```
-
-### 🔹 **Envio da Nota para a API**
-A função `emitir_nfse()` faz a requisição HTTP:
-```python
-def emitir_nfse(dados):
-    headers = {
-        "x-api-key": API_KEY,
-        "Content-Type": "application/json"
-    }
-    response = requests.post(URL, json=dados, headers=headers)
-    if response.status_code == 201:
-        print("NFS-e emitida com sucesso!")
-    else:
-        print("Erro ao emitir NFS-e:", response.text)
-```
-
-### 🔹 **Processamento das Notas**
-```python
-notas = ler_csv("notas.csv")
-for nota in notas:
-    emitir_nfse(dados_nfse)
-```
-
----
-
-## 📌 Referências
-- [PlugNotas - Documentação Oficial](https://docs.plugnotas.com.br/)
 
