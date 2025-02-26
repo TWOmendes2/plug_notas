@@ -1,70 +1,117 @@
-import requests
+import json
 import csv
+import requests
+from decimal import Decimal
 
-API_KEY = "SUA_CHAVE_DA_API"
-URL = "https://api.plugnotas.com.br/nfse"
+URL_NFSE = "https://api.sandbox.plugnotas.com.br/nfse"
+
+TOKEN = "2da392a6-79d2-4304-a8b7-959572c7e44d"
+
+CNPJ_SERVICO = "08187168000160"
+RAZAO_SOCIAL = "ISOS SOLUÇÕES EDUCACIONAIS LTDA"
+INSCRICAO_MUNICIPAL = "123456" 
+NOME_FANTASIA = "SISTEMA ISOS"
 
 
-def ler_csv(arquivo):
-    notas = []
-    with open(arquivo, mode="r", encoding="utf-8") as file:
-        leitor = csv.DictReader(file)
-        for linha in leitor:
-            notas.append(linha)
-    return notas
+SERIE_RPS = "10"
+NUMERO_RPS = "3056"
+LOTE_RPS = "3275"
 
-def emitir_nfse(dados):
+
+def processar_clientes(csv_file):
+    with open(csv_file, mode='r', encoding='utf-8') as file:
+        reader = csv.DictReader(file)
+        for row in reader:
+            try:
+                nome = row.get("Nome", "").strip()
+                if not nome:
+                    print(f"❌ Nome ausente para CPF/CNPJ: {row.get('CPF/CNPJ', 'Desconhecido')}")
+                    continue
+
+                valor_total = 220.00
+
+                
+                nfse_payload = [{
+                    "idIntegracao": "206530",  
+                    "emitente": {
+                        "cpfCnpj": CNPJ_SERVICO,
+                        "razaoSocial": RAZAO_SOCIAL,
+                        "inscricaoMunicipal": INSCRICAO_MUNICIPAL,
+                        "nomeFantasia": NOME_FANTASIA
+                    },
+                    "prestador": {
+                        "cpfCnpj": CNPJ_SERVICO,
+                        "razaoSocial": RAZAO_SOCIAL,
+                        "inscricaoMunicipal": INSCRICAO_MUNICIPAL
+                    },
+                    "tomador": {
+                        "cpfCnpj": row["CPF/CNPJ"],
+                        "razaoSocial": nome,
+                        "endereco": {
+                            "logradouro": row["Logradouro"],
+                            "numero": row["Número"],
+                            "bairro": row["Bairro"],
+                            "codigoMunicipio": row["Código Município"],
+                            "uf": row["UF"],
+                            "cep": row["CEP"]
+                        }
+                    },
+                    "servico": [{
+                        "descricao": "Consultoria em Tecnologia",
+                        "aliquota": 5.00,
+                        "valor": round(valor_total, 2),  
+                        "codigoMunicipio": row["Código Município"],
+                        "issRetido": False,  
+                        "responsavelRetencao": None,  
+                        "itemListaServico": "0107",  
+                        "discriminacao": "Serviços de consultoria em tecnologia da informação",
+                        "codigoTributacaoMunicipio": "0107", 
+                        "cidadePrestacao": {
+                            "codigoMunicipio": row["Código Município"],
+                            "descricaoMunicipio": "São Paulo"  
+                        }
+                    }],
+                    "rps": {
+                        "serie": SERIE_RPS,
+                        "numero": NUMERO_RPS,
+                        "lote": LOTE_RPS
+                    },
+                    "ambiente": "Homologacao",  
+                    "enviarEmail": False,  
+                    "naturezaTributacao": 1,  
+                    "regimeApuracaoTributaria": 1  
+                }]
+
+                
+                print("\n🔹 JSON da NFS-e:", json.dumps(nfse_payload, indent=4, ensure_ascii=False))
+
+                
+                print(f"📤 Enviando NFS-e para {nome}")
+                enviar_para_plugNotas(nfse_payload, URL_NFSE, "serviço", CNPJ_SERVICO)
+
+            except Exception as e:
+                print(f"❌ Erro ao processar cliente {row.get('Nome', 'Desconhecido')}: {e}")
+
+
+def enviar_para_plugNotas(payload, url, tipo_item, cnpj):
     headers = {
-        "x-api-key": API_KEY,
+        "X-API-KEY": TOKEN,
         "Content-Type": "application/json"
     }
-    
-    response = requests.post(URL, json=dados, headers=headers)
-    
-    if response.status_code == 201:
-        print("NFS-e emitida com sucesso!")
-        print(response.json()) 
-    else:
-        print("Erro ao emitir NFS-e:", response.text)
 
-notas = ler_csv("notas.csv")
+    response = None 
+    try:
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        response.raise_for_status()
+        print(f"✔ {tipo_item.capitalize()} enviado com sucesso para CNPJ {cnpj}!")
+        print("Resposta da API:", response.json())
+    except requests.exceptions.Timeout:
+        print(f"⏳ Tempo limite excedido ao enviar {tipo_item} (CNPJ: {cnpj})")
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Erro ao enviar {tipo_item} (CNPJ: {cnpj}): {e}")
+        if response is not None:  
+            print("Resposta da API:", response.text)
 
-for nota in notas:
-    valor_total = float(nota["valor_total"])
-    valor_servico = round(valor_total * 0.70, 2)  
-    valor_produto = round(valor_total * 0.30, 2)  
 
-   
-    dados_nfse = {
-        "tomador": {
-            "cpfCnpj": nota["cpf_cnpj"],
-            "razaoSocial": nota["nome"],
-            "endereco": {
-                "logradouro": "Rua Exemplo",
-                "numero": "123",
-                "bairro": "Centro",
-                "codigoMunicipio": "",  # Código de Maceió (AL)
-                "uf": "AL",
-                "cep": "57000000"
-            }
-        },
-        "servico": {
-            "discriminacao": nota["descricao"],
-            "codigo": nota["codigo_servico"],
-            "aliquotaIss": 5.0,
-            "valor": valor_servico
-        },
-        "produtos": [
-            {
-                "codigo": nota["codigo_produto"],
-                "descricao": "Material Didático",
-                "ncm": "49019900",  # Exemplo de NCM para livros fisicos
-                "quantidade": 1,
-                "valorUnitario": valor_produto
-            }
-        ],
-        "valor": valor_total
-    }
-
-    # Emitir a NFS-e
-    emitir_nfse(dados_nfse)
+if __name__ == "__main__":
+    processar_clientes("clientes_teste.csv")
