@@ -1,3 +1,2 @@
-Nome,CPF/CNPJ,Logradouro,Número,Bairro,Código Município,UF,CEP
-Joao Pedro Barros Lyra Wanderley,09427348402,Rua Exemplo,123,Centro,3550308,SP,01001000
-
+Nome,CPF/CNPJ,Logradouro,Número,Bairro,Código Município,UF,CEP,Valor Total da Venda,NCM,CFOP,CST
+Cliente Sintético,00000000000,Rua Fictícia,0,Bairro Fictício,0000000,XX,00000000,100.00,00000000,0000,00

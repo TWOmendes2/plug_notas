@@ -1,73 +1,37 @@
-# Integração com a API PlugNotas
+# PlugNotas — integração fiscal demonstrativa
 
-Este projeto tem como objetivo integrar a API da PlugNotas para emissão de **NFe (Nota Fiscal Eletrônica)** e **NFS-e (Nota Fiscal de Serviço Eletrônica)**, dividindo o valor total da venda em **70% para serviço** e **30% para produto**.
+Cliente Python que lê vendas em CSV, divide o valor entre serviço e produto e monta
+requisições NFe/NFS-e. Destina-se a estudo de integração; os esquemas e regras fiscais
+precisam de homologação com o provedor antes de qualquer uso operacional.
 
-## 📌 Funcionalidades
-- Processa um arquivo CSV contendo informações de clientes e valores de venda.
-- Divide automaticamente os valores entre **produto** e **serviço**.
-- Envia requisições para emissão de **NFe** e **NFS-e** na API da PlugNotas.
-- Exibe o JSON gerado antes do envio para depuração.
-- Captura e exibe os erros retornados pela API.
+## Execução
 
-## 🛠️ Tecnologias Utilizadas
-- **Python 3.x**
-- **Bibliotecas:**
-  - `requests` (para comunicação com a API)
-  - `csv` (para leitura do arquivo CSV)
-  - `json` (para manipulação de dados JSON)
+Requer Python 3.11+ e `pip install -r requirements.txt`. Configure no ambiente as
+variáveis listadas em `.env.example`; o programa não carrega `.env` automaticamente.
+Percentuais tributários são expressos de 0 a 100; SERVICE_SHARE é uma fração de 0 a 1.
+Nenhum enquadramento fiscal é presumido. Os exemplos de documentos são fictícios.
 
-## 📂 Estrutura do Projeto
-```
-📁 projeto
-│-- plug-notas.py  # Código principal para processamento e envio das notas
-│-- clientes_teste.csv  # Arquivo CSV com os dados dos clientes
-│-- README.md  # Documentação do projeto
-```
-
-## ⚙️ Configuração
-### 1️⃣ **Instalar dependências**
-Se ainda não tiver a biblioteca `requests`, instale com:
 ```sh
-pip install requests
+python plug-notas.py --csv clientes_teste.csv
+python -m unittest discover -s tests -v
 ```
 
-### 2️⃣ **Definir o Token da API**
-O token de autenticação da PlugNotas deve ser configurado corretamente no código:
-```python
-TOKEN = "SEU_TOKEN_AQUI"
-```
-Caso precise de um novo token, acesse o **Painel da PlugNotas**.
+A execução padrão apenas monta os dados, sem exibi-los ou enviá-los. `--send` ativa
+o envio ao sandbox. O exemplo intencionalmente inválido não serve para emissão.
+Use um CSV local autorizado, protegido e ignorado pelo Git para homologação.
 
-### 3️⃣ **Executar o Script**
-Para rodar o script, utilize:
-```sh
-python plug-notas.py
-```
+## Fluxo e limites
 
-## 📥 Formato do Arquivo CSV
-O arquivo `clientes_teste.csv` deve conter os seguintes campos:
-```csv
-Nome,CPF/CNPJ,Logradouro,Número,Bairro,Código Município,UF,CEP,Valor Total da Venda,NCM,CFOP,CST
-"Cliente Teste","12345678000123","Rua Exemplo","123","Centro","3550308","SP","01001000","1000.00","49019900","5101","06"
-```
+Ambiente → configuração validada → CSV → divisão decimal → payloads → sandbox.
+Valores monetários usam Decimal e arredondamento de centavos; o saldo vai para produto.
+A integração mantém o formato legado dos payloads, ainda sem validação completa do
+contrato fiscal. O primeiro erro de envio interrompe o lote. Não existe transação
+entre os dois documentos, deduplicação persistente ou reconciliação automática.
 
-## 🚀 Como Funciona
-1. O script lê o CSV e separa o valor da venda em **70% serviço e 30% produto**.
-2. Gera os JSONs necessários para a API da PlugNotas.
-3. Envia requisições para emissão de NFe e NFS-e.
-4. Exibe os JSONs enviados e as respostas da API.
+As saídas omitem dados pessoais e respostas do provedor. Consulte [SECURITY.md](SECURITY.md)
+para revogação da chave histórica e tratamento dos dados anteriormente publicados.
 
-## 🛑 Possíveis Erros e Soluções
-### ❌ **Erro: "Já existe uma NFe com os parâmetros informados"**
-🔹 **Causa:** O mesmo `idIntegracao` foi utilizado antes.
-🔹 **Solução:** Gerar um novo ID para cada nota:
-```python
-import uuid
-novo_id_integracao = str(uuid.uuid4())
-```
+## Próximas melhorias
 
-### ❌ **Erro: "Falha na validação do JSON de NFSe"**
-🔹 **Causa:** Algum campo obrigatório está ausente ou com valor inválido.
-🔹 **Solução:** Verificar se `valor`, `razaoSocial` e `endereco` estão corretos antes de enviar.
-
-
+Validar contratos do provedor com fixtures oficiais de sandbox; registrar IDs de
+integração sem PII; adicionar reconciliação e armazenamento seguro do estado do lote.
