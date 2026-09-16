@@ -1,46 +1,62 @@
-import json
+import os
+import argparse
+from decimal import Decimal, ROUND_HALF_UP
 import csv
 import requests
 
 
-URL_NFE = "https://api.sandbox.plugnotas.com.br/nfe"
-URL_NFSE = "https://api.sandbox.plugnotas.com.br/nfse"
 
 
-TOKEN = "2da392a6-79d2-4304-a8b7-959572c7e44d"
 
 
-CNPJ_SERVICO = "08187168000160"
-CNPJ_PRODUTO = "08187168000160"
 
-def processar_clientes(csv_file):
+def load_config():
+    names = ('PLUGNOTAS_API_KEY', 'CNPJ_SERVICO', 'CNPJ_PRODUTO',
+             'INSCRICAO_MUNICIPAL', 'INSCRICAO_ESTADUAL', 'SERVICE_SHARE',
+             'ISS_RATE', 'PIS_RATE', 'COFINS_RATE', 'PIS_CST',
+             'SERVICE_DESCRIPTION', 'PRODUCT_DESCRIPTION')
+    config = {name: os.environ.get(name, '').strip() for name in names}
+    missing = [name for name, value in config.items() if not value]
+    if missing:
+        raise ValueError('Variáveis ausentes: ' + ', '.join(missing))
+    for name in ('SERVICE_SHARE', 'ISS_RATE', 'PIS_RATE', 'COFINS_RATE'):
+        value = Decimal(config[name])
+        limit = Decimal(1) if name == 'SERVICE_SHARE' else Decimal(100)
+        if not value.is_finite() or not 0 <= value <= limit:
+            raise ValueError('Configuração numérica inválida: ' + name)
+        config[name] = value
+    return config
+
+
+def processar_clientes(csv_file, config, send=False):
+    TOKEN = config['PLUGNOTAS_API_KEY']
+    CNPJ_SERVICO = config['CNPJ_SERVICO']
+    CNPJ_PRODUTO = config['CNPJ_PRODUTO']
+    URL_NFE = 'https://api.sandbox.plugnotas.com.br/nfe'
+    URL_NFSE = 'https://api.sandbox.plugnotas.com.br/nfse' 
     with open(csv_file, mode='r', encoding='utf-8') as file:
         reader = csv.DictReader(file)
         for row in reader:
             try:
                 nome = row.get("Nome", "").strip()
                 if not nome:
-                    print(f"❌ Nome ausente para CPF/CNPJ: {row.get('CPF/CNPJ', 'Desconhecido')}")
-                    continue
+                    raise ValueError('Nome ausente')
 
                 try:
-                    valor_total = float(row["Valor Total da Venda"])
-                    valor_servico = round(float(valor_total) * 0.7, 2)
-                    valor_produto = round(float(valor_total) * 0.3, 2)
+                    valor_total = Decimal(row["Valor Total da Venda"])
+                    if not valor_total.is_finite() or valor_total <= 0:
+                        raise ValueError('Valor inválido')
+                    valor_total = valor_total.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    valor_servico = (valor_total * config['SERVICE_SHARE']).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                    valor_produto = valor_total - valor_servico
                 except ValueError:
-                    print(f"❌ Erro ao converter valores para {nome}")
-                    continue
-
-             
-                if not isinstance(valor_servico, (int, float)) or not isinstance(valor_produto, (int, float)):
-                    print(f"❌ Erro: Valores inválidos para {nome}")
-                    continue
+                    raise ValueError('Valor inválido') from None
 
                
                 nfse_payload = [{
                     "prestador": {
                         "cpfCnpj": CNPJ_SERVICO,
-                        "inscricaoMunicipal": "123456"
+                        "inscricaoMunicipal": config['INSCRICAO_MUNICIPAL']
                     },
                     "tomador": {
                         "cpfCnpj": row["CPF/CNPJ"],
@@ -55,8 +71,8 @@ def processar_clientes(csv_file):
                         }
                     },
                     "servico": {  
-                        "descricao": "Consultoria em Tecnologia",
-                        "aliquota": 5.00,
+                        "descricao": config['SERVICE_DESCRIPTION'],
+                        "aliquota": float(config['ISS_RATE']),
                         "valor": float(valor_servico),  
                         "codigoMunicipio": row["Código Município"]
                     }
@@ -66,7 +82,7 @@ def processar_clientes(csv_file):
                 nfe_payload = [{
                     "emitente": {
                         "cpfCnpj": CNPJ_PRODUTO,
-                        "inscricaoEstadual": "123456789"
+                        "inscricaoEstadual": config['INSCRICAO_ESTADUAL']
                     },
                     "destinatario": {
                         "cpfCnpj": row["CPF/CNPJ"],
@@ -81,7 +97,7 @@ def processar_clientes(csv_file):
                         }
                     },
                     "itens": [{
-                        "descricao": "Produto Exemplo",
+                        "descricao": config['PRODUCT_DESCRIPTION'],
                         "ncm": row["NCM"],
                         "cfop": row["CFOP"],
                         "quantidade": 1,
@@ -89,55 +105,51 @@ def processar_clientes(csv_file):
                         "valorUnitarioTributavel": float(valor_produto), 
                         "tributos": {
                             "pis": {
-                                "cst": "01",
+                                "cst": config['PIS_CST'],
                                 "baseCalculo": float(valor_produto),
-                                "aliquota": 1.65,
-                                "valor": round(valor_produto * 0.0165, 2)
+                                "aliquota": float(config['PIS_RATE']),
+                                "valor": float((valor_produto * config['PIS_RATE'] / 100).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
                             },
                             "cofins": {
                                 "cst": row["CST"],
                                 "baseCalculo": float(valor_produto),
-                                "aliquota": 7.60,
-                                "valor": round(valor_produto * 0.076, 2)
+                                "aliquota": float(config['COFINS_RATE']),
+                                "valor": float((valor_produto * config['COFINS_RATE'] / 100).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
                             }
                         }
                     }]
                 }]
 
-               
-                print("\n🔹 JSON da NFe:", json.dumps(nfe_payload, indent=4, ensure_ascii=False))
-                print("\n🔹 JSON da NFS-e:", json.dumps(nfse_payload, indent=4, ensure_ascii=False))
-
-                
-                print(f"📤 Enviando NFe para Produto (30%) - Cliente: {nome}")
-                enviar_para_plugNotas(nfe_payload, URL_NFE, "produto", CNPJ_PRODUTO)
-
-             
-                print(f"📤 Enviando NFS-e para Serviço (70%) - Cliente: {nome}")
-                enviar_para_plugNotas(nfse_payload, URL_NFSE, "serviço", CNPJ_SERVICO)
-
-            except Exception as e:
-                print(f"❌ Erro ao processar cliente {row.get('Nome', 'Desconhecido')}: {e}")
 
 
-def enviar_para_plugNotas(payload, url, tipo_item, cnpj):
-    headers = {
-        "X-API-KEY": TOKEN,
-        "Content-Type": "application/json"
-    }
+                if send:
+                    enviar_para_plugNotas(nfe_payload, URL_NFE, TOKEN)
+                    enviar_para_plugNotas(nfse_payload, URL_NFSE, TOKEN)
+                print('Linha processada; envio=' + str(send))
 
+
+
+            except (ValueError, KeyError, ArithmeticError):
+                raise ValueError('CSV inválido; processamento interrompido sem exibir dados pessoais') from None
+
+
+def enviar_para_plugNotas(payload, url, token):
     try:
-        response = requests.post(url, json=payload, headers=headers, timeout=10)
-        response.raise_for_status()
-        print(f"✔ {tipo_item.capitalize()} enviado com sucesso para CNPJ {cnpj}!")
-        print("Resposta da API:", response.json())
-    except requests.exceptions.Timeout:
-        print(f"⏳ Tempo limite excedido ao enviar {tipo_item} (CNPJ: {cnpj})")
-    except requests.exceptions.RequestException as e:
-        print(f"❌ Erro ao enviar {tipo_item} (CNPJ: {cnpj}): {e}")
-        if response is not None:
-            print("Resposta da API:", response.text)
+        response = requests.post(url, json=payload,
+                                 headers={'X-API-KEY': token}, timeout=10,
+                                 allow_redirects=False)
+        if not 200 <= response.status_code < 300:
+            raise RuntimeError('Envio recusado; consulte o painel seguro do provedor')
+    except requests.exceptions.RequestException:
+        raise RuntimeError('Falha de comunicação; confira o painel antes de reenviar') from None
 
 
-if __name__ == "__main__":
-    processar_clientes("clientes_teste.csv")
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Integração demonstrativa PlugNotas (sandbox)')
+    parser.add_argument('--csv', default='clientes_teste.csv')
+    parser.add_argument('--send', action='store_true', help='Enviar explicitamente ao sandbox')
+    args = parser.parse_args()
+    try:
+        processar_clientes(args.csv, load_config(), args.send)
+    except (ValueError, RuntimeError, OSError, ArithmeticError):
+        parser.exit(1, 'Falha: confira configuração, CSV e painel seguro; nenhum dado sensível será exibido.\n')
